@@ -68,11 +68,7 @@ sudo apt install ros-$ROS_DISTRO-apriltag-ros
 
 在终端用roscd进入apriltag_ros
 
-![83419aac0e90cd790892ab84dcaf2cef](/home/hsj/H_ws/src/apriltag_location/image/83419aac0e90cd790892ab84dcaf2cef.png)
-
-输入ls查看目录
-
-![47d2e250c35c1b77788fc83eb946385f](/home/hsj/H_ws/src/apriltag_location/image/47d2e250c35c1b77788fc83eb946385f.png)
+输入ls查看目录!
 
 可以修改config配置文件和launch文件
 
