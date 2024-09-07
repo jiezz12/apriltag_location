@@ -15,18 +15,20 @@
 #define HIGHT_LIT 60 //最大高度限制 m
 #define vel_z 0.5 //上升速度
 
+using namespace std;
+
 bool marker_found = false,flag_move = false;
-int   mode = 5 ,move_mode = 0;
+int  move_mode = 0,channle1 = 5, channle2 = 6,value1 = 0,value2 = 1024,value3 = 1000,value4 = 1500,value5 = 1900;
 std::vector<int> current_target_id (1);
 float detec_x = 0, detec_y = 0, detec_z = 0;
 float init_x_take_off =0, init_y_take_off =0, init_z_take_off =0;
-double angle1 = 0;
+double angle1 = 0, cam_angle = 0;
+int x_err = 0,y_err = 0;
 
 typedef struct
 {	
 	float kp = 2.80;              //比例系数
 	float ki = 0.0002;              //积分系数
-	float kd = 1.68;              //微分系数
 	
 	float err_I_lim = 2500;		//积分限幅值
 	
@@ -41,7 +43,6 @@ typedef struct
 	float erray_p,erray_i,erray_d;
 	
 	float CtrOutx,CtrOuty;          //控制增量输出
-
 }PID;
 PID H;
 
@@ -72,27 +73,27 @@ void hdg_cb(std_msgs::Float64 msg)
 mavros_msgs::RCIn rcin;
 void rcin_cb(const mavros_msgs::RCIn::ConstPtr& msg)
 {
-	for(int i = 0;i<=12;i++)
-	{
-		rcin.channels[i] = msg->channels[i];
-		ROS_INFO("channel[%d]:%d",i,rcin.channels[i]);
-	}
-	if(msg->channels[mode] > 1024)
+	// for(int i = 0;i<=12;i++)
+	// {
+	// 	rcin.channels[i] = msg->channels[i];
+	// 	ROS_INFO("channel[%d]:%d",i,rcin.channels[i]);
+	// }
+	if(msg->channels[channle1] > value1 - 50 && msg->channels[channle1] < value1 + 50)
 	{
 		flag_move = 1;
 		ROS_INFO("开启手动");
-	}else
+	}else if(msg->channels[channle1] > value2 - 50 && msg->channels[channle1] < value2 + 50)
 	{
 		flag_move = 0;
 		ROS_INFO("开启自动");
 	}
-	if(msg->channels[6] > 1900)
+	if(msg->channels[channle2] > value3 - 50 && msg->channels[channle2] < value3 + 50)
 	{
 		move_mode = 1;
-	}else 	if(msg->channels[6] < 1024)
+	}else 	if(msg->channels[channle2] > value4 - 50 && msg->channels[channle2] < value4 + 50)
 	{
 		move_mode = 2;
-	}else 	
+	}else 	if(msg->channels[channle2] > value5 - 50 && msg->channels[channle2] < value5 + 50)
 	{
 		move_mode = 0;
 	}
@@ -162,6 +163,22 @@ void vel_pi(float x,float y)
 
 	vel_xz(H.CtrOutx,H.CtrOuty);
 }
+
+//读取参数模板
+template<typename T>
+T getParam(const std::string& name,const T& defaultValue)//This name must be namespace+parameter_name
+{
+    T v;
+    if(ros::param::get(name,v))//get parameter by name depend on ROS.
+    {
+        ROS_INFO_STREAM("Found parameter: "<<name<<",\tvalue: "<<v);
+        return v;
+    }
+    else 
+        ROS_WARN_STREAM("Cannot find value for parameter: "<<name<<",\tassigning default: "<<defaultValue);
+    return defaultValue;//if the parameter haven't been set,it's value will return defaultValue.
+}
+
 int main(int argc, char *argv[])
 {
 	setlocale(LC_ALL, "");
@@ -179,6 +196,14 @@ int main(int argc, char *argv[])
 	ros::ServiceClient set_mode_client = nh.serviceClient<mavros_msgs::SetMode>("mavros/set_mode");
 
 	ros::Rate rate(20);
+
+	x_err = getParam<int>("cam/x_err",0);
+	y_err = getParam<int>("cam/y_err",0);
+   cam_angle = getParam<int>("cam/R",0);
+
+	channle1 = getParam<int>("mode/channle1",0);
+	channle2 = getParam<int>("mode/channle2",0);
+
 
 	while(ros::ok() && !current_state.connected){
     ros::spinOnce();
@@ -229,6 +254,7 @@ int main(int argc, char *argv[])
 	char mode = 't';
 	int sametimes = 0;
 
+	
 	while(ros::ok())
     {
 		if (current_state.mode != "OFFBOARD" &&

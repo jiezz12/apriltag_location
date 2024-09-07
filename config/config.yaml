@@ -1,0 +1,14 @@
+mode:
+ channle1 : 5 #切换模式通道
+  value1:
+  value2:
+ channle2 : 6 #
+  value3:
+  value4:
+  value5:
+cam: #相机参数
+ x_err : 20 #x轴相对误差
+ y_err : 10 #y轴相对误差
+ R: 0 #相机旋转角度
+
+asd : 123.00
