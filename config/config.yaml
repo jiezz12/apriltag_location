@@ -1,9 +1,9 @@
 mode:
  channle1 : 6 #切换模式通道
  channle2 : 4
- value1 : 1065
+ value1 : 1065 #模式通道1杆量
  value2 : 1933
- value3 : 1065
+ value3 : 1065 #通道2杆量
  value4 : 1499
  value5 : 1933
 cam: #相机参数
