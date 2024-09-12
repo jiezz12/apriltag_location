@@ -356,7 +356,7 @@ int main(int argc, char *argv[])
 								{
 								
 									ROS_INFO("err_x:%f,err_y:%f",detec_x ,detec_y);
-									vel_pi(-(detec_y  - (y_err * 0.005))* 2,-(detec_x - x_err * 0.02)); //×2 是因为相机坐标下y比x小一倍
+									vel_pi(-(detec_y  - (y_err * 0.005))* 2,-(detec_x - x_err * 0.005)); //×2 是因为相机坐标下y比x小一倍
 									setpoint.velocity.z = vel_z;
 								}
 								else
