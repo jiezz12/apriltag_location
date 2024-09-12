@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
 <launch>
   <node pkg="apriltag_location" name="apriltag" type="location_node" output="screen"/>
-  		　<rosparam file="$(find apriltag_location)/config/config.yaml"/>
+  		　<rosparam file="$(find apriltag_location)/config/config.yaml" command="load"/>
 </launch>

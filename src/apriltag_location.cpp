@@ -18,7 +18,7 @@
 using namespace std;
 
 bool marker_found = false,flag_move = false;
-int  move_mode = 0,channle1 = 5, channle2 = 6,value1 = 0,value2 = 1024,value3 = 1000,value4 = 1500,value5 = 1900;
+int  move_mode = 0,channle1 = 6, channle2 = 4,value1 = 0,value2 = 1024,value3 = 1000,value4 = 1500,value5 = 1900;
 std::vector<int> current_target_id (1);
 float detec_x = 0, detec_y = 0, detec_z = 0;
 float init_x_take_off =0, init_y_take_off =0, init_z_take_off =0;
@@ -78,6 +78,9 @@ void rcin_cb(const mavros_msgs::RCIn::ConstPtr& msg)
 	// 	rcin.channels[i] = msg->channels[i];
 	// 	ROS_INFO("channel[%d]:%d",i,rcin.channels[i]);
 	// }
+	ROS_INFO("channel[6]:%d",msg->channels[6]);
+	ROS_INFO("channel[4]:%d",msg->channels[4]);
+
 	if(msg->channels[channle1] > value1 - 50 && msg->channels[channle1] < value1 + 50)
 	{
 		flag_move = 1;
@@ -87,15 +90,21 @@ void rcin_cb(const mavros_msgs::RCIn::ConstPtr& msg)
 		flag_move = 0;
 		ROS_INFO("开启自动");
 	}
-	if(msg->channels[channle2] > value3 - 50 && msg->channels[channle2] < value3 + 50)
+	if(flag_move == 1)
 	{
-		move_mode = 1;
-	}else 	if(msg->channels[channle2] > value4 - 50 && msg->channels[channle2] < value4 + 50)
-	{
-		move_mode = 2;
-	}else 	if(msg->channels[channle2] > value5 - 50 && msg->channels[channle2] < value5 + 50)
-	{
-		move_mode = 0;
+		if(msg->channels[channle2] > value3 - 50 && msg->channels[channle2] < value3 + 50)
+		{
+			move_mode = 1;
+			ROS_INFO("1");
+		}else 	if(msg->channels[channle2] > value4 - 50 && msg->channels[channle2] < value4 + 50)
+		{
+			move_mode = 2;
+			ROS_INFO("2");
+		}else 	if(msg->channels[channle2] > value5 - 50 && msg->channels[channle2] < value5 + 50)
+		{
+			move_mode = 0;
+			ROS_INFO("3");
+		}
 	}
 }
 apriltag_ros::AprilTagDetection marker;
@@ -189,7 +198,7 @@ int main(int argc, char *argv[])
 	ros::Subscriber local_pos_sub = nh.subscribe<geometry_msgs::PoseStamped>("mavros/local_position/pose", 10, local_pos_cb);//订阅位置信息
 	ros::Subscriber apriltag_sub = nh.subscribe<apriltag_ros::AprilTagDetectionArray>("/tag_detections", 10, apriltag_cb);//订阅识别信息
 	ros::Subscriber hdg_sub = nh.subscribe<std_msgs::Float64>("mavros/global_position/compass_hdg", 10, hdg_cb);// 订阅磁罗盘角度
-	ros::Subscriber rc_sub = nh.subscribe<mavros_msgs::RCIn>("mavros/rc_in", 10, rcin_cb);// 订阅摇杆杆量
+	ros::Subscriber rc_sub = nh.subscribe<mavros_msgs::RCIn>("mavros/rc/in", 10, rcin_cb);// 订阅摇杆杆量
 
 	ros::Publisher setpoint_pub = nh.advertise<mavros_msgs::PositionTarget>("mavros/setpoint_raw/local", 10);//控制话题,可以发布位置速度加速度同时控制
 	ros::ServiceClient arming_client = nh.serviceClient<mavros_msgs::CommandBool>("mavros/cmd/arming");
@@ -203,6 +212,12 @@ int main(int argc, char *argv[])
 
 	channle1 = getParam<int>("mode/channle1",0);
 	channle2 = getParam<int>("mode/channle2",0);
+
+	value1 = getParam<int>("mode/value1",0);
+	value2 = getParam<int>("mode/value2",0);
+	value3 = getParam<int>("mode/value3",0);
+	value4 = getParam<int>("mode/value4",0);
+	value5 = getParam<int>("mode/value5",0);
 
 
 	while(ros::ok() && !current_state.connected){
@@ -320,14 +335,17 @@ int main(int argc, char *argv[])
 								if(move_mode == 1)
 								{
 									setpoint.velocity.z = vel_z;
+									ROS_INFO("升高");
 								}
 								else if(move_mode == 0)
 								{
 									setpoint.velocity.z = 0;
+									ROS_INFO("停止");
 								}
 								else if(move_mode == 2)
 								{
 									setpoint.velocity.z = -vel_z;
+									ROS_INFO("降低");
 								}
 								setpoint.velocity.x = 0;
 								setpoint.velocity.y = 0;
@@ -338,7 +356,7 @@ int main(int argc, char *argv[])
 								{
 								
 									ROS_INFO("err_x:%f,err_y:%f",detec_x ,detec_y);
-									vel_pi(-detec_y * 2,-detec_x); //×2 是因为相机坐标下y比x小一倍
+									vel_pi(-(detec_y  - (y_err * 0.005))* 2,-(detec_x - x_err * 0.02)); //×2 是因为相机坐标下y比x小一倍
 									setpoint.velocity.z = vel_z;
 								}
 								else

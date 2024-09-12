@@ -48,7 +48,7 @@ apriltag安装
 `cd build`
 `cmake ..`
 `make`
-`sudp make install`
+`sudo make install`
 
 
 
