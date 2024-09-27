@@ -11,26 +11,27 @@
 #include <std_msgs/Float64.h>
 #include <mavros_msgs/RCIn.h>
 
-#define HIGHT	5		//初始飞行高度 m
-#define HIGHT_LIT 60 //最大高度限制 m
-#define vel_z 0.5 //上升速度
+// #define HIGHT	5		//初始飞行高度 m
+// #define HIGHT_LIT 60 //最大高度限制 m
+// #define vel_z 0.5 //上升速度
 
 using namespace std;
+
 
 bool marker_found = false,flag_move = false;
 int  move_mode = 0,channle1 = 6, channle2 = 4,value1 = 0,value2 = 1024,value3 = 1000,value4 = 1500,value5 = 1900;
 std::vector<int> current_target_id (1);
 float detec_x = 0, detec_y = 0, detec_z = 0;
 float init_x_take_off =0, init_y_take_off =0, init_z_take_off =0;
-double angle1 = 0, cam_angle = 0;
-int x_err = 0,y_err = 0;
+double angle1 = 0, cam_angle = 0, fx,fy,cx,cy, detec_x_err,detec_y_err,vel_z;
+int x_err = 0,y_err = 0,HIGHT,HIGHT_LIT;
 
 typedef struct
 {	
-	float kp = 2.80;              //比例系数
+	float kp = 0.020;              //比例系数
 	float ki = 0.0002;              //积分系数
 	
-	float err_I_lim = 2500;		//积分限幅值
+	float err_I_lim = 2000;		//积分限幅值
 	
 	float errx_Now,errx_old_Last,errx_old_LLast;           //当前偏差,上一次偏差,上上次偏差
 	float erry_Now,erry_old_Last,erry_old_LLast;
@@ -149,10 +150,15 @@ void vel_xz(float vel_x,float vel_y)
 }
 void vel_pi(float x,float y)
 {
-	H.errx_Now =  x;
+    detec_x_err = detec_z *   ( x_err * 0.01)/2;
+	detec_y_err = detec_z *   (y_err * 0.01)/2;
+
+	ROS_INFO("x_err:%f,y_err:%f",detec_x_err,detec_y_err);
+
+	H.errx_Now =  x + detec_x_err;
 	H.errx_p = H.errx_Now;
 	H.errx_i = H.errx_Now + H.errx_i;
-	H.erry_Now = y;
+	H.erry_Now = y + detec_y_err;
 	H.erry_p = H.erry_Now;
 	H.erry_i = H.erry_Now + H.erry_i;
 	
@@ -170,9 +176,32 @@ void vel_pi(float x,float y)
 	H.CtrOutx = H.errx_p*H.kp + H.errx_i*H.ki ;
 	H.CtrOuty = H.erry_p*H.kp + H.erry_i*H.ki ;
 
+	if(H.CtrOutx >= 0.5) H.CtrOutx = 0.5;
+	if(H.CtrOutx <= -0.5) H.CtrOutx = -0.5;
+	if(H.CtrOuty >= 0.5) H.CtrOuty = 0.5;
+	if(H.CtrOuty <= -0.5) H.CtrOuty = -0.5;
+
 	vel_xz(H.CtrOutx,H.CtrOuty);
 }
 
+void cam_xz(float xa,float ya)
+{
+	double rotation_angle = - cam_angle * (M_PI / 180.0);
+    tf::Quaternion q;
+	q.setRPY( 180 * (M_PI / 180.0), 0, rotation_angle); //旋转矩阵 与机体坐标系一致
+
+	tf::Vector3 point(xa,ya,0);
+	tf::Matrix3x3 rotation_matrix(q);
+	tf::Vector3 rotated_point = rotation_matrix * point;
+
+	ROS_INFO("x_xz:%f,y_xz:%f",rotated_point.x(),rotated_point.y());
+
+	//detec_x_err = x_err * fx / (detec_z * 100.00);
+	//detec_y_err = y_err * fy / (detec_z * 100.00);
+	
+
+	vel_pi(rotated_point.x() ,rotated_point.y());
+}
 //读取参数模板
 template<typename T>
 T getParam(const std::string& name,const T& defaultValue)//This name must be namespace+parameter_name
@@ -206,9 +235,13 @@ int main(int argc, char *argv[])
 
 	ros::Rate rate(20);
 
-	x_err = getParam<int>("cam/x_err",0);
-	y_err = getParam<int>("cam/y_err",0);
-   cam_angle = getParam<int>("cam/R",0);
+	x_err = getParam<double>("cam/x_err",0);
+	y_err = getParam<double>("cam/y_err",0);
+    cam_angle = getParam<int>("cam/R",0);
+	fx = getParam<double>("cam/fx",0);
+	fy = getParam<double>("cam/fy",0);
+	cx = getParam<double>("cam/cx",0);
+	cy = getParam<double>("cam/cy",0);
 
 	channle1 = getParam<int>("mode/channle1",0);
 	channle2 = getParam<int>("mode/channle2",0);
@@ -219,6 +252,9 @@ int main(int argc, char *argv[])
 	value4 = getParam<int>("mode/value4",0);
 	value5 = getParam<int>("mode/value5",0);
 
+    HIGHT = getParam<int>("move/HIGHT",0);
+    HIGHT_LIT = getParam<int>("move/HIGHT_LIT",0);
+    vel_z = getParam<double>("move/vel_z",0);
 
 	while(ros::ok() && !current_state.connected){
     ros::spinOnce();
@@ -347,16 +383,37 @@ int main(int argc, char *argv[])
 									setpoint.velocity.z = -vel_z;
 									ROS_INFO("降低");
 								}
-								setpoint.velocity.x = 0;
-								setpoint.velocity.y = 0;
+								if(detec_x - 0 >= detec_z * 0.1  )
+								{
+									//you
+									vel_xz(0,-0.1);
+								}
+								if(detec_x - 0 <= -detec_z *0.1)
+								{
+									//zuo
+									vel_xz(0,0.1);
+								}
+								if(detec_y - 0 >= detec_z * 0.1  )
+								{
+									//hou
+									vel_xz(-0.10,0);
+								}
+								if(detec_y - 0 <= -detec_z *0.1)
+								{
+									//qian
+									vel_xz(0.1,0);
+								}
+								//setpoint.velocity.x = 0;
+								//setpoint.velocity.y = 0;
 							}
 							else
 							{
 								if(marker_found)
 								{
 								
-									ROS_INFO("err_x:%f,err_y:%f",detec_x ,detec_y);
-									vel_pi(-(detec_y  - (y_err * 0.005))* 2,-(detec_x - x_err * 0.005)); //×2 是因为相机坐标下y比x小一倍
+									//ROS_INFO("err_x:%f,err_y:%f",detec_x ,detec_y);
+									cam_xz(detec_x,detec_y);
+									//vel_pi(-(detec_y ),-(detec_x)); 
 									setpoint.velocity.z = vel_z;
 								}
 								else
