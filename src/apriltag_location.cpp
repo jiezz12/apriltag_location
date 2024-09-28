@@ -23,25 +23,22 @@ int  move_mode = 0,channle1 = 6, channle2 = 4,value1 = 0,value2 = 1024,value3 = 
 std::vector<int> current_target_id (1);
 float detec_x = 0, detec_y = 0, detec_z = 0;
 float init_x_take_off =0, init_y_take_off =0, init_z_take_off =0;
-double angle1 = 0, cam_angle = 0, fx,fy,cx,cy, detec_x_err,detec_y_err,vel_z;
+double angle1 = 0, cam_angle = 0, fx,fy,cx,cy, detec_x_err = 0,detec_y_err = 0,vel_z;
 int x_err = 0,y_err = 0,HIGHT,HIGHT_LIT;
 
 typedef struct
 {	
-	float kp = 0.020;              //比例系数
+	float kp = 1.050  ;              //比例系数
 	float ki = 0.0002;              //积分系数
+	float kd = 0.088;
+
+	float err_I_lim = 50;		//积分限幅值
 	
-	float err_I_lim = 2000;		//积分限幅值
-	
-	float errx_Now,errx_old_Last,errx_old_LLast;           //当前偏差,上一次偏差,上上次偏差
-	float erry_Now,erry_old_Last,erry_old_LLast;
-	float errax_Now,errax_old_Last,errax_old_LLast;           //当前偏差,上一次偏差,上上次偏差
-	float erray_Now,erray_old_Last,erray_old_LLast;
-	
-	float errx_p,errx_i,errx_d;
-	float erry_p,erry_i,erry_d;
-	float errax_p,errax_i,errax_d;
-	float erray_p,erray_i,erray_d;
+	float errx_Now = 0,errx_old_Last = 0,errx_old_LLast = 0;           //当前偏差,上一次偏差,上上次偏差
+	float erry_Now = 0,erry_old_Last = 0,erry_old_LLast = 0;
+
+	float errx_p,errx_i = 0,errx_d;
+	float erry_p,erry_i = 0,erry_d;
 	
 	float CtrOutx,CtrOuty;          //控制增量输出
 }PID;
@@ -136,7 +133,7 @@ void apriltag_cb(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg)
 
 void vel_xz(float vel_x,float vel_y)
 {
-	double rotation_angle = (angle1 ) * (M_PI / 180.0);
+	double rotation_angle = ( angle1 ) * (M_PI / 180.0);
     tf::Quaternion q;
 	q.setRPY(0, 0, rotation_angle);
 
@@ -150,22 +147,25 @@ void vel_xz(float vel_x,float vel_y)
 }
 void vel_pi(float x,float y)
 {
-    detec_x_err = detec_z *   ( x_err * 0.01)/2;
-	detec_y_err = detec_z *   (y_err * 0.01)/2;
+    //detec_x_err = detec_z *   ( x_err * 0.01)/2;
+	//detec_y_err = detec_z *   (y_err * 0.01)/2;
 
 	ROS_INFO("x_err:%f,y_err:%f",detec_x_err,detec_y_err);
 
-	H.errx_Now =  x + detec_x_err;
+	H.errx_Now =  detec_x_err + x;
 	H.errx_p = H.errx_Now;
 	H.errx_i = H.errx_Now + H.errx_i;
-	H.erry_Now = y + detec_y_err;
+	H.errx_d = H.errx_Now - H.errx_old_Last + H.errx_old_Last - H.errx_old_LLast;
+	H.erry_Now =  detec_y_err + y;
 	H.erry_p = H.erry_Now;
 	H.erry_i = H.erry_Now + H.erry_i;
+	H.erry_d = H.erry_Now - H.erry_old_Last + H.erry_old_Last - H.erry_old_LLast;
 	
 	H.errx_old_LLast = H.errx_old_Last;
 	H.errx_old_Last = H.errx_Now;
 	H.erry_old_LLast = H.erry_old_Last;
 	H.erry_old_Last = H.erry_Now;	
+	
 
 	//积分限幅
 	if(H.errx_i > H.err_I_lim)	H.errx_i = H.err_I_lim;		
@@ -173,8 +173,8 @@ void vel_pi(float x,float y)
 	if(H.erry_i > H.err_I_lim)	H.erry_i = H.err_I_lim;		
 	if(H.erry_i < -H.err_I_lim)	H.erry_i = -H.err_I_lim;
 
-	H.CtrOutx = H.errx_p*H.kp + H.errx_i*H.ki ;
-	H.CtrOuty = H.erry_p*H.kp + H.erry_i*H.ki ;
+	H.CtrOutx = H.errx_p*H.kp * (0.05 / detec_z)+ H.errx_i*H.ki + H.errx_d*H.kd;
+	H.CtrOuty = H.erry_p*H.kp * (0.05 / detec_z)+ H.erry_i*H.ki + H.erry_d*H.kd;
 
 	if(H.CtrOutx >= 0.5) H.CtrOutx = 0.5;
 	if(H.CtrOutx <= -0.5) H.CtrOutx = -0.5;
@@ -186,21 +186,26 @@ void vel_pi(float x,float y)
 
 void cam_xz(float xa,float ya)
 {
-	double rotation_angle = - cam_angle * (M_PI / 180.0);
+	double vx,vy;
+	double rotation_angle =  cam_angle * (M_PI / 180.0);
     tf::Quaternion q;
-	q.setRPY( 180 * (M_PI / 180.0), 0, rotation_angle); //旋转矩阵 与机体坐标系一致
+	q.setRPY( 0, 0, rotation_angle); //旋转矩阵 与机体坐标系一致
 
 	tf::Vector3 point(xa,ya,0);
 	tf::Matrix3x3 rotation_matrix(q);
 	tf::Vector3 rotated_point = rotation_matrix * point;
+ 
+ ROS_INFO("detec_x=%.2f,detec_y=%.2f,detec_z=%.2f",detec_x,detec_y,detec_z);
 
 	ROS_INFO("x_xz:%f,y_xz:%f",rotated_point.x(),rotated_point.y());
 
 	//detec_x_err = x_err * fx / (detec_z * 100.00);
 	//detec_y_err = y_err * fy / (detec_z * 100.00);
-	
+	// vx = xa * cos(cam_angle * (M_PI / 180.0) ) + ya * sin(cam_angle * (M_PI / 180.0));
+	// vy =  - xa * sin(cam_angle * (M_PI / 180.0)) + ya * cos(cam_angle * (M_PI / 180.0));
+	// ROS_INFO("x_xz1:%f,y_xz1:%f",vx,vy);
 
-	vel_pi(rotated_point.x() ,rotated_point.y());
+	vel_pi(rotated_point.x() , - rotated_point.y());
 }
 //读取参数模板
 template<typename T>
@@ -341,7 +346,7 @@ int main(int argc, char *argv[])
 					setpoint.position.x = init_x_take_off;
 					setpoint.position.y = init_y_take_off;
 					setpoint.position.z = init_z_take_off + HIGHT;
-					if(local_pos.pose.position.z > init_z_take_off + HIGHT - 0.2 && local_pos.pose.position.z < init_z_take_off + HIGHT + 0.2)
+					if(local_pos.pose.position.z > init_z_take_off + HIGHT - 0.5 )
 					{	
 						if (sametimes > 10)
               			{
@@ -412,7 +417,7 @@ int main(int argc, char *argv[])
 								{
 								
 									//ROS_INFO("err_x:%f,err_y:%f",detec_x ,detec_y);
-									cam_xz(detec_x,detec_y);
+									cam_xz(detec_x,detec_y );
 									//vel_pi(-(detec_y ),-(detec_x)); 
 									setpoint.velocity.z = vel_z;
 								}
