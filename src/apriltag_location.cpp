@@ -8,8 +8,8 @@
 #include <tf/LinearMath/Quaternion.h>
 #include <tf/LinearMath/Vector3.h>
 #include <tf/LinearMath/Matrix3x3.h>
-#include <std_msgs/Float64.h>
 #include <mavros_msgs/RCIn.h>
+#include <sensor_msgs/Imu.h>
 
 // #define HIGHT	5		//初始飞行高度 m
 // #define HIGHT_LIT 60 //最大高度限制 m
@@ -23,7 +23,7 @@ int  move_mode = 0,channle1 = 6, channle2 = 4,value1 = 0,value2 = 1024,value3 = 
 std::vector<int> current_target_id (1);
 float detec_x = 0, detec_y = 0, detec_z = 0;
 float init_x_take_off =0, init_y_take_off =0, init_z_take_off =0;
-double angle1 = 0, cam_angle = 0, fx,fy,cx,cy, detec_x_err = 0,detec_y_err = 0,vel_z;
+double angle1 = 0, cam_angle = 0, fx,fy,cx,cy, detec_x_err = 0,detec_y_err = 0,vel_z,roll,pitch,yaw = 0;
 int x_err = 0,y_err = 0,HIGHT,HIGHT_LIT;
 
 typedef struct
@@ -55,27 +55,24 @@ void local_pos_cb(const geometry_msgs::PoseStamped::ConstPtr &msg)
 {
 	local_pos = *msg;
 }
-std_msgs::Float64 hdg;
-void hdg_cb(std_msgs::Float64 msg)
+void yaw_cb(sensor_msgs::Imu msg)
 {
-	hdg.data = msg.data;
-	//ROS_INFO("hdg:%f",hdg.data);
-	if(hdg.data < 90)
-	{
-		angle1 = 90 - hdg.data;
-	}else{
-		angle1 = 450 - hdg.data;
-	}
-	//ROS_INFO("angle:%f",angle1);
+	tf::Quaternion quaternion(
+        msg.orientation.x,
+        msg.orientation.y,
+        msg.orientation.z,
+        msg.orientation.w
+        );
+    tf::Matrix3x3(quaternion).getRPY(roll,pitch,yaw);
+    roll = roll*180/M_PI;
+    pitch = pitch*180/M_PI;
+    yaw = yaw*180/M_PI;
+
+    //ROS_INFO("roll: %.0f ,pitch: %.0f  , yaw: %.0f",roll,pitch,yaw);  
 }
 mavros_msgs::RCIn rcin;
 void rcin_cb(const mavros_msgs::RCIn::ConstPtr& msg)
 {
-	// for(int i = 0;i<=12;i++)
-	// {
-	// 	rcin.channels[i] = msg->channels[i];
-	// 	ROS_INFO("channel[%d]:%d",i,rcin.channels[i]);
-	// }
 	ROS_INFO("channel[6]:%d",msg->channels[6]);
 	ROS_INFO("channel[4]:%d",msg->channels[4]);
 
@@ -105,6 +102,7 @@ void rcin_cb(const mavros_msgs::RCIn::ConstPtr& msg)
 		}
 	}
 }
+
 apriltag_ros::AprilTagDetection marker;
 void apriltag_cb(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg)
 {
@@ -187,25 +185,12 @@ void vel_pi(float x,float y)
 void cam_xz(float xa,float ya)
 {
 	double vx,vy;
-	double rotation_angle =  cam_angle * (M_PI / 180.0);
-    tf::Quaternion q;
-	q.setRPY( 0, 0, rotation_angle); //旋转矩阵 与机体坐标系一致
-
-	tf::Vector3 point(xa,ya,0);
-	tf::Matrix3x3 rotation_matrix(q);
-	tf::Vector3 rotated_point = rotation_matrix * point;
- 
- ROS_INFO("detec_x=%.2f,detec_y=%.2f,detec_z=%.2f",detec_x,detec_y,detec_z);
-
-	ROS_INFO("x_xz:%f,y_xz:%f",rotated_point.x(),rotated_point.y());
-
-	//detec_x_err = x_err * fx / (detec_z * 100.00);
-	//detec_y_err = y_err * fy / (detec_z * 100.00);
-	// vx = xa * cos(cam_angle * (M_PI / 180.0) ) + ya * sin(cam_angle * (M_PI / 180.0));
-	// vy =  - xa * sin(cam_angle * (M_PI / 180.0)) + ya * cos(cam_angle * (M_PI / 180.0));
+	xa = xa + x_err * 0.01;
+	ya = ya + y_err * 0.01;
+	vx = xa * cos(cam_angle * (M_PI / 180.0) ) - ya * sin(cam_angle * (M_PI / 180.0));
+	 vy =  - xa * sin(cam_angle * (M_PI / 180.0)) - ya * cos(cam_angle * (M_PI / 180.0));
 	// ROS_INFO("x_xz1:%f,y_xz1:%f",vx,vy);
-
-	vel_pi(rotated_point.x() , - rotated_point.y());
+	vel_pi(vx , vy);
 }
 //读取参数模板
 template<typename T>
@@ -231,8 +216,8 @@ int main(int argc, char *argv[])
 	ros::Subscriber state_sub = nh.subscribe<mavros_msgs::State>("mavros/state", 10, state_cb);//订阅无人机状态话题
 	ros::Subscriber local_pos_sub = nh.subscribe<geometry_msgs::PoseStamped>("mavros/local_position/pose", 10, local_pos_cb);//订阅位置信息
 	ros::Subscriber apriltag_sub = nh.subscribe<apriltag_ros::AprilTagDetectionArray>("/tag_detections", 10, apriltag_cb);//订阅识别信息
-	ros::Subscriber hdg_sub = nh.subscribe<std_msgs::Float64>("mavros/global_position/compass_hdg", 10, hdg_cb);// 订阅磁罗盘角度
 	ros::Subscriber rc_sub = nh.subscribe<mavros_msgs::RCIn>("mavros/rc/in", 10, rcin_cb);// 订阅摇杆杆量
+	ros::Subscriber yaw_sub = nh.subscribe<sensor_msgs::Imu>("mavros/imu/data", 10, yaw_cb);	//订阅无人机imu数据
 
 	ros::Publisher setpoint_pub = nh.advertise<mavros_msgs::PositionTarget>("mavros/setpoint_raw/local", 10);//控制话题,可以发布位置速度加速度同时控制
 	ros::ServiceClient arming_client = nh.serviceClient<mavros_msgs::CommandBool>("mavros/cmd/arming");
@@ -243,10 +228,6 @@ int main(int argc, char *argv[])
 	x_err = getParam<double>("cam/x_err",0);
 	y_err = getParam<double>("cam/y_err",0);
     cam_angle = getParam<int>("cam/R",0);
-	fx = getParam<double>("cam/fx",0);
-	fy = getParam<double>("cam/fy",0);
-	cx = getParam<double>("cam/cx",0);
-	cy = getParam<double>("cam/cy",0);
 
 	channle1 = getParam<int>("mode/channle1",0);
 	channle2 = getParam<int>("mode/channle2",0);
@@ -309,7 +290,7 @@ int main(int argc, char *argv[])
 
 	char mode = 't';
 	int sametimes = 0;
-
+	angle1 = yaw;
 	
 	while(ros::ok())
     {
@@ -358,7 +339,7 @@ int main(int argc, char *argv[])
 						else sametimes = 0;
 	 	            break;
 					case 'm':
-							setpoint.type_mask =			//使用位置控制
+							setpoint.type_mask =			//使用速度控制
 							mavros_msgs::PositionTarget::IGNORE_PX |
 							mavros_msgs::PositionTarget::IGNORE_PY |
 							mavros_msgs::PositionTarget::IGNORE_PZ |
